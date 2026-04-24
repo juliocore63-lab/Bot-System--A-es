@@ -128,7 +128,7 @@ function criarBotoesAcao(acao) {
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`participantes_${acao.id}`)
-      .setLabel("Participantes")
+      .setLabel("Atualizar Participantes")
       .setEmoji("👥")
       .setStyle(ButtonStyle.Secondary),
 
@@ -161,7 +161,7 @@ async function atualizarPainelAcao(acao) {
       components: criarBotoesAcao(acao)
     });
   } catch (err) {
-    console.error("Erro ao atualizar embed da ação:", err);
+    console.error("Erro ao atualizar embed:", err);
   }
 }
 
@@ -204,7 +204,6 @@ async function gerarRanking(tipo, pagina = 0) {
   const descricao = paginaAtual.length
     ? paginaAtual.map((r, i) => {
         const pos = inicio + i + 1;
-
         return `**${pos}. ${r.username}** — 💰 R$ ${Number(r.totalDinheiro || 0).toLocaleString("pt-BR")} | ⏱️ ${formatarTempo(Number(r.totalTempo || 0))} | 🎯 ${r.totalAcoes}`;
       }).join("\n")
     : "Nenhum dado encontrado.";
@@ -240,6 +239,37 @@ async function gerarRanking(tipo, pagina = 0) {
     components: [row],
     ephemeral: true
   };
+}
+
+async function enviarLogFinal(acao, participantes, lista) {
+  try {
+    if (!process.env.LOG_CHANNEL_ID) return;
+
+    const canalLogs = await client.channels.fetch(process.env.LOG_CHANNEL_ID).catch(() => null);
+    if (!canalLogs) return;
+
+    const embedLog = new EmbedBuilder()
+      .setColor("#2ECC71")
+      .setTitle("📋 Relatório Final da Ação")
+      .setDescription(
+        `🎯 **Ação:** ${acao.nome}\n` +
+        `👤 **Criador:** <@${acao.criadorId}>\n` +
+        `💰 **Dinheiro total:** R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}\n` +
+        `👥 **Total de participantes:** ${participantes.length}`
+      )
+      .addFields({
+        name: "Participantes",
+        value: lista || "Nenhum participante"
+      })
+      .setFooter({
+        text: "Relatório enviado automaticamente"
+      })
+      .setTimestamp();
+
+    await canalLogs.send({ embeds: [embedLog] });
+  } catch (err) {
+    console.error("Erro ao enviar log final:", err);
+  }
 }
 
 const commands = [
@@ -321,14 +351,12 @@ client.on("interactionCreate", async interaction => {
         acao.messageId = msg.id;
         acao.channelId = msg.channel.id;
         acoesAtivas.set(id, acao);
-
         return;
       }
 
       if (interaction.commandName === "ranking") {
         const tipo = interaction.options.getString("tipo");
-        const resposta = await gerarRanking(tipo, 0);
-        return interaction.reply(resposta);
+        return interaction.reply(await gerarRanking(tipo, 0));
       }
 
       if (interaction.commandName === "resumo") {
@@ -373,18 +401,12 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("rank_prev_")) {
         const partes = interaction.customId.split("_");
-        const tipo = partes[2];
-        const pagina = Number(partes[3]) - 1;
-        const resposta = await gerarRanking(tipo, pagina);
-        return interaction.update(resposta);
+        return interaction.update(await gerarRanking(partes[2], Number(partes[3]) - 1));
       }
 
       if (interaction.customId.startsWith("rank_next_")) {
         const partes = interaction.customId.split("_");
-        const tipo = partes[2];
-        const pagina = Number(partes[3]) + 1;
-        const resposta = await gerarRanking(tipo, pagina);
-        return interaction.update(resposta);
+        return interaction.update(await gerarRanking(partes[2], Number(partes[3]) + 1));
       }
 
       const acaoId = interaction.customId.split("_")[1];
@@ -418,7 +440,7 @@ client.on("interactionCreate", async interaction => {
         await atualizarPainelAcao(acao);
 
         return interaction.reply({
-          content: `✅ ${user} entrou na ação **${acao.nome}**.`,
+          content: `✅ Você entrou na ação **${acao.nome}**.`,
           ephemeral: true
         });
       }
@@ -442,7 +464,7 @@ client.on("interactionCreate", async interaction => {
         await atualizarPainelAcao(acao);
 
         return interaction.reply({
-          content: `🚪 ${user} saiu da ação **${acao.nome}**.`,
+          content: `🚪 Você saiu da ação **${acao.nome}**.`,
           ephemeral: true
         });
       }
@@ -467,7 +489,7 @@ client.on("interactionCreate", async interaction => {
         await atualizarPainelAcao(acao);
 
         return interaction.reply({
-          content: "✅ Lista de participantes atualizada na embed.",
+          content: "✅ Lista atualizada.",
           ephemeral: true
         });
       }
@@ -512,13 +534,13 @@ client.on("interactionCreate", async interaction => {
           return `• <@${p.userId}> — ${formatarTempo(tempoFinal)}`;
         }).join("\n");
 
-        const embed = new EmbedBuilder()
+        const embedFinal = new EmbedBuilder()
           .setColor("#2ECC71")
           .setTitle(`✅ Ação Finalizada: ${acao.nome}`)
           .setDescription(`👤 **Criador:** <@${acao.criadorId}>`)
           .addFields(
             {
-              name: "💰 Dinheiro total da ação",
+              name: "💰 Dinheiro total",
               value: `R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}`,
               inline: true
             },
@@ -528,8 +550,11 @@ client.on("interactionCreate", async interaction => {
             }
           )
           .setFooter({
-            text: "Dinheiro contabilizado para todos. Tempo contabilizado individualmente."
-          });
+            text: "Dinheiro contabilizado para todos. Tempo individual."
+          })
+          .setTimestamp();
+
+        await enviarLogFinal(acao, participantes, lista);
 
         acoesAtivas.delete(acao.id);
 
@@ -538,16 +563,16 @@ client.on("interactionCreate", async interaction => {
             const channel = await client.channels.fetch(acao.channelId);
             const message = await channel.messages.fetch(acao.messageId);
             await message.edit({
-              embeds: [embed],
+              embeds: [embedFinal],
               components: []
             });
           }
         } catch (err) {
-          console.error("Erro ao editar mensagem finalizada:", err);
+          console.error("Erro ao editar mensagem final:", err);
         }
 
         return interaction.reply({
-          content: `✅ Ação **${acao.nome}** finalizada com sucesso.`,
+          content: `✅ Ação **${acao.nome}** finalizada e relatório enviado para os logs.`,
           ephemeral: true
         });
       }
