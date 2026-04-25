@@ -128,8 +128,8 @@ function criarBotoesAcao(acao) {
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`participantes_${acao.id}`)
-      .setLabel("Atualizar Participantes")
-      .setEmoji("👥")
+      .setLabel("Atualizar")
+      .setEmoji("🔄")
       .setStyle(ButtonStyle.Secondary),
 
     new ButtonBuilder()
@@ -161,7 +161,7 @@ async function atualizarPainelAcao(acao) {
       components: criarBotoesAcao(acao)
     });
   } catch (err) {
-    console.error("Erro ao atualizar embed:", err);
+    console.error("Erro ao atualizar painel:", err);
   }
 }
 
@@ -241,7 +241,7 @@ async function gerarRanking(tipo, pagina = 0) {
   };
 }
 
-async function enviarLogFinal(acao, participantes, lista) {
+async function enviarLogFinal(acao, participantes, lista, tempoTotal) {
   try {
     if (!process.env.LOG_CHANNEL_ID) return;
 
@@ -255,6 +255,7 @@ async function enviarLogFinal(acao, participantes, lista) {
         `🎯 **Ação:** ${acao.nome}\n` +
         `👤 **Criador:** <@${acao.criadorId}>\n` +
         `💰 **Dinheiro total:** R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}\n` +
+        `⏱️ **Duração total:** ${formatarTempo(tempoTotal)}\n` +
         `👥 **Total de participantes:** ${participantes.length}`
       )
       .addFields({
@@ -350,6 +351,7 @@ client.on("interactionCreate", async interaction => {
 
         acao.messageId = msg.id;
         acao.channelId = msg.channel.id;
+
         acoesAtivas.set(id, acao);
         return;
       }
@@ -489,94 +491,110 @@ client.on("interactionCreate", async interaction => {
         await atualizarPainelAcao(acao);
 
         return interaction.reply({
-          content: "✅ Lista atualizada.",
+          content: "✅ Ação atualizada.",
           ephemeral: true
         });
       }
 
       if (interaction.customId.startsWith("finalizar_")) {
-  const participante = acao.participantes.get(user.id);
+        const participante = acao.participantes.get(user.id);
 
-  // ❌ NÃO está na ação
-  if (!participante) {
-    return interaction.reply({
-      content: "❌ Você precisa estar participando da ação para finalizar.",
-      ephemeral: true
-    });
-  }
+        if (!participante) {
+          return interaction.reply({
+            content: "❌ Você precisa estar participando da ação para finalizar.",
+            ephemeral: true
+          });
+        }
 
-  // ❌ Já saiu da ação
-  if (participante.saiu) {
-    return interaction.reply({
-      content: "❌ Você saiu da ação e não pode finalizá-la.",
-      ephemeral: true
-    });
-  }
+        if (participante.saiu) {
+          return interaction.reply({
+            content: "❌ Você saiu da ação e não pode finalizá-la.",
+            ephemeral: true
+          });
+        }
 
-  // ❌ Sem participantes
-  if (acao.participantes.size === 0) {
-    return interaction.reply({
-      content: "❌ Não é possível finalizar sem participantes.",
-      ephemeral: true
-    });
-  }
+        if (acao.participantes.size === 0) {
+          return interaction.reply({
+            content: "❌ Não é possível finalizar sem participantes.",
+            ephemeral: true
+          });
+        }
 
-  const fim = Date.now();
-  const participantes = [...acao.participantes.values()];
+        const fim = Date.now();
+        const tempoTotal = fim - acao.inicio;
+        const participantes = [...acao.participantes.values()];
 
-  for (const p of participantes) {
-    let tempoFinal = p.tempo;
+        for (const p of participantes) {
+          let tempoFinal = p.tempo;
 
-    if (!p.saiu) {
-      tempoFinal += fim - p.entrada;
-    }
+          if (!p.saiu) {
+            tempoFinal += fim - p.entrada;
+          }
 
-    await dbRun(`
-      INSERT INTO acoes
-      (acaoId, nomeAcao, userId, username, dinheiro, inicio, fim, tempo, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      acao.id,
-      acao.nome,
-      p.userId,
-      p.username,
-      acao.dinheiroTotal,
-      acao.inicio,
-      fim,
-      tempoFinal,
-      Date.now()
-    ]);
-  }
+          await dbRun(`
+            INSERT INTO acoes
+            (acaoId, nomeAcao, userId, username, dinheiro, inicio, fim, tempo, createdAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            acao.id,
+            acao.nome,
+            p.userId,
+            p.username,
+            acao.dinheiroTotal,
+            acao.inicio,
+            fim,
+            tempoFinal,
+            Date.now()
+          ]);
+        }
 
-  const lista = participantes.map(p => {
-    const tempoFinal = p.saiu ? p.tempo : p.tempo + fim - p.entrada;
-    return `• <@${p.userId}> — ${formatarTempo(tempoFinal)}`;
-  }).join("\n");
+        const lista = participantes.map(p => {
+          const tempoFinal = p.saiu ? p.tempo : p.tempo + fim - p.entrada;
+          const status = p.saiu ? "Saiu" : "Ativo até o final";
+          return `• <@${p.userId}> — ${status} — ${formatarTempo(tempoFinal)}`;
+        }).join("\n");
 
-  const embedFinal = new EmbedBuilder()
-    .setColor("#2ECC71")
-    .setTitle(`✅ Ação Finalizada: ${acao.nome}`)
-    .addFields(
-      {
-        name: "💰 Dinheiro total",
-        value: `R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}`,
-        inline: true
-      },
-      {
-        name: "👥 Participantes",
-        value: lista || "Nenhum participante"
+        const embedFinal = new EmbedBuilder()
+          .setColor("#2ECC71")
+          .setTitle(`✅ Ação Finalizada: ${acao.nome}`)
+          .setDescription(
+            `👤 **Criador:** <@${acao.criadorId}>\n` +
+            `💰 **Dinheiro total:** R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}\n` +
+            `⏱️ **Duração total:** ${formatarTempo(tempoTotal)}\n` +
+            `👥 **Participantes:** ${participantes.length}`
+          )
+          .addFields({
+            name: "Relatório dos participantes",
+            value: lista || "Nenhum participante"
+          })
+          .setFooter({
+            text: "Ação encerrada — painel desativado"
+          })
+          .setTimestamp();
+
+        await enviarLogFinal(acao, participantes, lista, tempoTotal);
+
+        acoesAtivas.delete(acao.id);
+
+        try {
+          if (acao.channelId && acao.messageId) {
+            const channel = await client.channels.fetch(acao.channelId);
+            const message = await channel.messages.fetch(acao.messageId);
+
+            await message.edit({
+              embeds: [embedFinal],
+              components: []
+            });
+          }
+        } catch (err) {
+          console.error("Erro ao editar relatório final:", err);
+        }
+
+        return interaction.reply({
+          content: `✅ Ação **${acao.nome}** finalizada. O painel foi substituído pelo relatório final.`,
+          ephemeral: true
+        });
       }
-    );
-
-  await enviarLogFinal(acao, participantes, lista);
-
-  acoesAtivas.delete(acao.id);
-
-  return interaction.reply({
-    content: `✅ Ação finalizada com sucesso.`,
-    ephemeral: true
-  });
-}
     }
 
     if (interaction.isModalSubmit()) {
