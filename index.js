@@ -240,7 +240,8 @@ async function gerarRanking(tipo, pagina = 0) {
     ephemeral: true
   };
 }
-
+   //resentando ranking
+   
 async function enviarLogFinal(acao, participantes, lista, tempoTotal) {
   try {
     if (!process.env.LOG_CHANNEL_ID) return;
