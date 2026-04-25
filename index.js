@@ -333,16 +333,25 @@ client.on("interactionCreate", async interaction => {
         const id = Date.now().toString();
 
         const acao = {
-          id,
-          nome,
-          criadorId: user.id,
-          criadorUsername: user.username,
-          inicio: Date.now(),
-          dinheiroTotal: 0,
-          participantes: new Map()
-        };
+  id,
+  nome,
+  criadorId: user.id,
+  criadorUsername: user.username,
+  inicio: Date.now(),
+  dinheiroTotal: 0,
+  participantes: new Map()
+};
 
-        acoesAtivas.set(id, acao);
+// Criador já entra automaticamente na ação
+acao.participantes.set(user.id, {
+  userId: user.id,
+  username: user.username,
+  entrada: Date.now(),
+  tempo: 0,
+  saiu: false
+});
+
+acoesAtivas.set(id, acao);
 
         const msg = await interaction.reply({
           ...criarPainelAcao(acao),
