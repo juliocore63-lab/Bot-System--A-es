@@ -495,87 +495,88 @@ client.on("interactionCreate", async interaction => {
       }
 
       if (interaction.customId.startsWith("finalizar_")) {
-        if (acao.participantes.size === 0) {
-          return interaction.reply({
-            content: "❌ Não é possível finalizar sem participantes.",
-            ephemeral: true
-          });
-        }
+  const participante = acao.participantes.get(user.id);
 
-        const fim = Date.now();
-        const participantes = [...acao.participantes.values()];
+  // ❌ NÃO está na ação
+  if (!participante) {
+    return interaction.reply({
+      content: "❌ Você precisa estar participando da ação para finalizar.",
+      ephemeral: true
+    });
+  }
 
-        for (const p of participantes) {
-          let tempoFinal = p.tempo;
+  // ❌ Já saiu da ação
+  if (participante.saiu) {
+    return interaction.reply({
+      content: "❌ Você saiu da ação e não pode finalizá-la.",
+      ephemeral: true
+    });
+  }
 
-          if (!p.saiu) {
-            tempoFinal += fim - p.entrada;
-          }
+  // ❌ Sem participantes
+  if (acao.participantes.size === 0) {
+    return interaction.reply({
+      content: "❌ Não é possível finalizar sem participantes.",
+      ephemeral: true
+    });
+  }
 
-          await dbRun(`
-            INSERT INTO acoes
-            (acaoId, nomeAcao, userId, username, dinheiro, inicio, fim, tempo, createdAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            acao.id,
-            acao.nome,
-            p.userId,
-            p.username,
-            acao.dinheiroTotal,
-            acao.inicio,
-            fim,
-            tempoFinal,
-            Date.now()
-          ]);
-        }
+  const fim = Date.now();
+  const participantes = [...acao.participantes.values()];
 
-        const lista = participantes.map(p => {
-          const tempoFinal = p.saiu ? p.tempo : p.tempo + fim - p.entrada;
-          return `• <@${p.userId}> — ${formatarTempo(tempoFinal)}`;
-        }).join("\n");
+  for (const p of participantes) {
+    let tempoFinal = p.tempo;
 
-        const embedFinal = new EmbedBuilder()
-          .setColor("#2ECC71")
-          .setTitle(`✅ Ação Finalizada: ${acao.nome}`)
-          .setDescription(`👤 **Criador:** <@${acao.criadorId}>`)
-          .addFields(
-            {
-              name: "💰 Dinheiro total",
-              value: `R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}`,
-              inline: true
-            },
-            {
-              name: "👥 Participantes",
-              value: lista || "Nenhum participante"
-            }
-          )
-          .setFooter({
-            text: "Dinheiro contabilizado para todos. Tempo individual."
-          })
-          .setTimestamp();
+    if (!p.saiu) {
+      tempoFinal += fim - p.entrada;
+    }
 
-        await enviarLogFinal(acao, participantes, lista);
+    await dbRun(`
+      INSERT INTO acoes
+      (acaoId, nomeAcao, userId, username, dinheiro, inicio, fim, tempo, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      acao.id,
+      acao.nome,
+      p.userId,
+      p.username,
+      acao.dinheiroTotal,
+      acao.inicio,
+      fim,
+      tempoFinal,
+      Date.now()
+    ]);
+  }
 
-        acoesAtivas.delete(acao.id);
+  const lista = participantes.map(p => {
+    const tempoFinal = p.saiu ? p.tempo : p.tempo + fim - p.entrada;
+    return `• <@${p.userId}> — ${formatarTempo(tempoFinal)}`;
+  }).join("\n");
 
-        try {
-          if (acao.channelId && acao.messageId) {
-            const channel = await client.channels.fetch(acao.channelId);
-            const message = await channel.messages.fetch(acao.messageId);
-            await message.edit({
-              embeds: [embedFinal],
-              components: []
-            });
-          }
-        } catch (err) {
-          console.error("Erro ao editar mensagem final:", err);
-        }
-
-        return interaction.reply({
-          content: `✅ Ação **${acao.nome}** finalizada e relatório enviado para os logs.`,
-          ephemeral: true
-        });
+  const embedFinal = new EmbedBuilder()
+    .setColor("#2ECC71")
+    .setTitle(`✅ Ação Finalizada: ${acao.nome}`)
+    .addFields(
+      {
+        name: "💰 Dinheiro total",
+        value: `R$ ${acao.dinheiroTotal.toLocaleString("pt-BR")}`,
+        inline: true
+      },
+      {
+        name: "👥 Participantes",
+        value: lista || "Nenhum participante"
       }
+    );
+
+  await enviarLogFinal(acao, participantes, lista);
+
+  acoesAtivas.delete(acao.id);
+
+  return interaction.reply({
+    content: `✅ Ação finalizada com sucesso.`,
+    ephemeral: true
+  });
+}
     }
 
     if (interaction.isModalSubmit()) {
