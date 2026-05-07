@@ -587,23 +587,20 @@ acoesAtivas.set(id, acao);
         acoesAtivas.delete(acao.id);
 
         try {
-          if (acao.channelId && acao.messageId) {
-            const channel = await client.channels.fetch(acao.channelId);
-            const message = await channel.messages.fetch(acao.messageId);
+  if (acao.channelId && acao.messageId) {
+    const channel = await client.channels.fetch(acao.channelId);
+    const message = await channel.messages.fetch(acao.messageId);
 
-            await message.edit({
-              embeds: [embedFinal],
-              components: []
-            });
-          }
-        } catch (err) {
-          console.error("Erro ao editar relatório final:", err);
-        }
+    await message.delete().catch(() => {});
+  }
+} catch (err) {
+  console.error("Erro ao excluir painel da ação:", err);
+}
 
-        return interaction.reply({
-          content: `✅ Ação **${acao.nome}** finalizada. O painel foi substituído pelo relatório final.`,
-          ephemeral: true
-        });
+return interaction.reply({
+  content: `✅ Ação **${acao.nome}** finalizada. O painel foi excluído e o relatório foi enviado no canal de logs.`,
+  ephemeral: true
+});
       }
     }
 
